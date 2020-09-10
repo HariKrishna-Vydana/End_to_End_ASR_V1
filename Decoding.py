@@ -8,7 +8,6 @@ import json
 from argparse import Namespace
 
 #**********
-sys.path.insert(0,'/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/Basic_Attention_V1')
 from Initializing_model_LSTM_SS_v2_args import Initialize_Att_model
 from Load_sp_model import Load_sp_models
 from CMVN import CMVN
@@ -31,6 +30,7 @@ with open(model_path_name, 'r') as f:
 ns = Namespace(**TEMP_args)
 args=parser.parse_args(namespace=ns)
 
+
 if args.Am_weight < 1:
     ##model class
     from RNNLM import RNNLM
@@ -45,7 +45,6 @@ if args.Am_weight < 1:
     with open(RNNLM_model_path_name, 'r') as f:
             RNNLM_TEMP_args = json.load(f)
     RNNLM_ns = Namespace(**RNNLM_TEMP_args)
-    #RNNLM=parser.parse_args(namespace=RNNLM_ns)
     ##==================================
     RNNLM_ns.gpu=0
     LM_model=RNNLM(RNNLM_ns)
@@ -59,7 +58,10 @@ def main():
         args.gpu=False
         best_weight_file=get_best_weights(args.weight_text_file,args.Res_text_file)
         print("best_weight_file",best_weight_file)
-        args.pre_trained_weight=join(best_weight_file)
+
+        #=================================================
+        if args.pre_trained_weight == "0":
+                args.pre_trained_weight=join(best_weight_file)
 
         #=================================================
         model,optimizer=Initialize_Att_model(args)
@@ -67,11 +69,9 @@ def main():
         model = model.cuda() if args.gpu else model
 
 
-
         #=================================================
         plot_path=join(args.model_dir,'decoding_files','plots')
-        if not isdir(plot_path):
-                os.makedirs(plot_path)
+        
         #=================================================
         ####read all the scps and make large scp with each lines as a feature
         decoding_files_list=glob.glob(args.dev_path + "*")
@@ -85,12 +85,9 @@ def main():
         ###sometime i tend to specify more jobs than maximum number of lines in that case python indexing error we get  
         job_no=int(args.Decoding_job_no)-1
         
-        #args.gamma=0.5
-        #print(job_no)
         #####get_cer_for_beam takes a list as input
         present_path=[scp_paths_decoding[job_no]]
         
-        #print(present_path)
         text_file_dict = {line.split(' ')[0]:line.strip().split(' ')[1:] for line in open(args.text_file)}
         get_cer_for_beam(present_path,model,text_file_dict,plot_path,args)
 

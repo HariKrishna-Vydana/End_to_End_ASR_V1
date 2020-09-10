@@ -11,7 +11,6 @@ import torch
 from torch import autograd, nn, optim
 from torch.autograd import Variable
 
-sys.path.insert(0,'/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/Basic_Attention_V1')
 from CMVN import CMVN
 from utils__ import weights_init,count_parameters
 
@@ -34,23 +33,6 @@ class Encoder_Decoder(nn.Module):
 
                         print("encoder:=====>",(count_parameters( self.model_encoder))/1000000.0)
                         print("decoder:=====>",(count_parameters(self.model_decoder))/1000000.0)
-
-                        ##load the pretrained weights
-                        ##
-                        # pre_trained_weight=args.pre_trained_weight
-                        # weight_flag=pre_trained_weight.split('/')[-1]
-                        # print("Initial Weights",weight_flag)
-                        # #exit(0)
-                        # if weight_flag != '0':
-                        #         print("Loading the model with the weights form:",pre_trained_weight)
-                        #         weight_file=pre_trained_weight.split('/')[-1]
-                        #         weight_path="/".join(pre_trained_weight.split('/')[:-1])
-                
-                        #         enc_weight=join(weight_path,weight_file)
-                        #         dec_weight=join(weight_path,'decoder_'+weight_file)
-
-                        #         self.model_encoder.load_state_dict(torch.load(enc_weight, map_location=lambda storage, loc: storage),strict=True)
-                        #         self.model_decoder.load_state_dict(torch.load(dec_weight, map_location=lambda storage, loc: storage),strict=True)
 
                 #==================================
                 else:

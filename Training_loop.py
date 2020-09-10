@@ -47,13 +47,10 @@ def train_val_model(**kwargs):
 
         #-----------------------------------------------------------------
         input=input.cuda() if args.gpu else input
-        teacher_force_rate = args.teacher_force if trainflag else 0
 
-        # H = model_encoder(input) 
-        # ###encoder of the model
-        # ###Decoder of the model         
-        # Decoder_out_dict = model_decoder(H, teacher_force_rate, Char_target, Word_target, smp_trans_text)
-        
+
+        teacher_force_rate = args.teacher_force if trainflag else 0
+ 
         #--------------------------------
         Decoder_out_dict = model(input,teacher_force_rate,Char_target,Word_target,smp_trans_text)
         #--------------------------------
@@ -62,10 +59,8 @@ def train_val_model(**kwargs):
                 cost.backward()
 
                 torch.nn.utils.clip_grad_norm_(model.parameters(),args.clip_grad_norm)
-                #torch.nn.utils.clip_grad_norm_(model_decoder.parameters(),args.clip_grad_norm)
 
                 optimizer.step()
-                #decoder_optim.step()
         #--------------------------------------
         cost_cpu = cost.item()
    

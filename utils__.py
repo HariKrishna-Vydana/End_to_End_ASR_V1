@@ -61,6 +61,12 @@ def weights_init(m):
                 if m.bias is not None:
                         m.bias.data.fill_(0)
 
+        ##added for the check
+        if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight.data, gain=nn.init.calculate_gain('relu'))
+                if m.bias is not None:
+                        m.bias.data.fill_(0)
+
 #===============================================================================================
 def weights_init_tanh(m):
         if isinstance(m, nn.Linear):

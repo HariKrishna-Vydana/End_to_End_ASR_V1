@@ -30,14 +30,13 @@ def cal_loss(pred, gold,IGNORE_ID,normalize_length,smoothing):
         gold_for_scatter = gold.ne(IGNORE_ID).long() * gold
         one_hot = torch.zeros_like(pred).scatter(1, gold_for_scatter.view(-1, 1), 1)
         one_hot = one_hot * (1 - eps) + (1 - one_hot) * eps / n_class
-        #print("eps,n_class,IGNORE_ID,,gold,gold.ne(IGNORE_ID).long(),gold_for_scatter,one_hot",eps,n_class,IGNORE_ID,gold,gold.ne(IGNORE_ID).long(),gold_for_scatter,one_hot)       
+        
         log_prb = F.log_softmax(pred, dim=1)
         non_pad_mask = gold.ne(IGNORE_ID)
         n_word = non_pad_mask.sum().item()
         loss = -(one_hot * log_prb).sum(dim=1)
 
         loss = loss.masked_select(non_pad_mask).sum() / n_word
-        #print("n_word,loss",n_word,loss)
 
     else:
         loss = F.cross_entropy(pred, gold,
@@ -49,17 +48,13 @@ def cal_loss(pred, gold,IGNORE_ID,normalize_length,smoothing):
 
 def cal_performance(pred, gold,IGNORE_ID):
     """Calculate cross entropy loss, apply label smoothing if needed. Args: pred: N *C, score before softmax  gold: N """
-    #import pdb;pdb.set_trace()
-    #pred = pred.max(1)[1]
-    #import pdb;pdb.set_trace()
 
     non_pad_mask = gold.ne(IGNORE_ID)
-    #print(non_pad_mask,non_pad_mask.size(),non_pad_mask.sum())
+    
     n_correct = pred.eq(gold)
     n_correct = n_correct.masked_select(non_pad_mask).sum().item()
     n_correct=n_correct/float(non_pad_mask.sum())
-    #print(len(n_correct),n_correct)
-    #n_correct=n_correct.sum().item()/len(n_correct)
+    
     n_correct=1.0-n_correct
     return n_correct
 
@@ -70,7 +65,6 @@ def  CrossEntropyLabelSmooth(pred, gold,IGNORE_ID,normalize_length,smoothing):
             inputs: prediction matrix (before softmax) with shape (batch_size, num_classes)
             targets: ground truth labels with shape (num_classes)
         """
-        # unk_mask=targets.ne(self.unk_id)
        
         
         inputs  = pred

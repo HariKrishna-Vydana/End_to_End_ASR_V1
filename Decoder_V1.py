@@ -6,19 +6,13 @@ from torch.autograd import Variable
 import torch.nn.utils.weight_norm as wtnrm
 
 import numpy as np
-# import keras
 from keras.preprocessing.sequence import pad_sequences
 
-import sys
-sys.path.insert(0, '/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/Basic_Attention_V1')
 
 from Load_sp_model import Load_sp_models
-# import CE_loss_label_smoothiong
 from CE_loss_label_smoothiong import cal_performance
 from CE_loss_label_smoothiong import CrossEntropyLabelSmooth as cal_loss
-# import utils.user_defined_losses
 from user_defined_losses import preprocess,compute_cer
-#from utils.score import compute_cer
 
 import sys
 import os
@@ -128,6 +122,10 @@ class decoder(nn.Module):
                     elif self.attention_type=='LAS_LOC':
                         yout, alpha_i, si_out, hn1_out, cn1_out, ci_out = self.LAS_LOC(H, yi, hn1, cn1, si, alpha_i_prev, ci)
                     #------------------------------
+                    elif self.attention_type=='LAS_LOC_ci':
+                        yout, alpha_i, si_out, hn1_out, cn1_out, ci_out = self.LAS_LOC_ci(H, yi, hn1, cn1, si, alpha_i_prev, ci)
+                    #------------------------------
+                    #-------------------------------
                     else:
                         print("-atention type undefined choose LAS |Collin_monotonc| Location_aware--->",self.attention_type)
                         exit(0)
@@ -209,10 +207,16 @@ class decoder(nn.Module):
                 yout=self.W_Dist(ci_pl_si)
                 return yout,alpha_i,si_out,hn1_out,cn1_out,ci_out
         #----------------------------------------------------------------------------------
+        def LAS_LOC_ci(self,H,yi,hn1,cn1,si,alpha_i_prev,ci):
+                lstm_input=torch.cat([yi,ci],dim=2)
+                #lstm_input=yi
+                si_out,(hn1_out,cn1_out)=self.Lexume_Lstm(lstm_input,(hn1,cn1))
+
+                ci_out,alpha_i,ci_pl_si,phi=self.Additive_Att_LOC(H,si_out,alpha_i_prev)
+                yout=self.W_Dist(ci_pl_si)
+                return yout,alpha_i,si_out,hn1_out,cn1_out,ci_out
         #----------------------------------------------------------------------------------
         #=======================================================================================
-       
-
         def forward(self,H,teacher_force_rate,Char_target,Word_target,L_text):
                 #----------
                 #if not self.use_word:
@@ -236,18 +240,15 @@ class decoder(nn.Module):
                 #---------------------------------------------------------------------------
                 #---------------------------------------------------------------------------
                 for d_steps in range(decoder_steps):
-                        
 
                         yout, alpha_i, si_out, hn1_out, cn1_out, ci_out = self.select_step(H, yi, hn1, cn1, si, alpha_i_prev,ci) 
-
-                        pred_out=F.softmax(yout,2)      
-                                                
+                        pred_out=F.softmax(yout,2)                                  
                         #--------------------------------------------
                         #-------------------------------------------- 
                         #cost+=loss(yout.squeeze(0),Word_target[:,d_steps]) + char_lstm_loss
                         present_word_cost = cal_loss(yout.squeeze(0),Word_target[:,d_steps],self.pad_index, normalize_length=True, smoothing=self.label_smoothing)
-
                         cost += present_word_cost
+
                         #-----------------------------------------
 
                         teacher_force = True if np.random.random_sample() < teacher_force_rate else False
@@ -264,13 +265,15 @@ class decoder(nn.Module):
                         output_seq.append(pred_out)
                         attention_record.append(alpha_i)
                 ###=====================================================================
-                ###=====================================================================
+                ###Normalize the loss per_label and not per batch
 
+                #print("Att_cost before normalized",cost)
+                cost = cost/(decoder_steps*batch_size)
+                #print("Att_cost after normalized",cost)
+                ###=====================================================================
                 #Computing WER
                 #import pdb; pdb.set_trace()
                 attention_record = torch.cat(attention_record,dim=1)
-                
-
                 output_seq = torch.cat(output_seq,dim=0).transpose(1,0)
                 output_seq = torch.argmax(output_seq,2)
                 
@@ -285,6 +288,7 @@ class decoder(nn.Module):
                 #import pdb; pdb.set_trace()
                 Char_CTC_loss=0
                 if self.compute_ctc:
+                    #breakpoint()
                     ctc_output = self.CTC_output_layer(H)
                     #ctc_output = ctc_output.transpose(0,1)
                     log_probs=torch.nn.functional.log_softmax(ctc_output,dim=2)
@@ -295,11 +299,12 @@ class decoder(nn.Module):
                     input_lengths   = input_lengths.cuda() if self.use_gpu else input_lengths
                     target_lengths  = target_lengths.cuda() if self.use_gpu else target_lengths
                     Char_CTC_loss   = self.CTC_Loss(log_probs,Char_target,input_lengths,target_lengths)
-                    CTC_norm_factor = H.size(0)
+                    CTC_norm_factor = Char_target.size(1)*batch_size
 
-
+                    #print("CTC_cost before the norm factor",Char_CTC_loss,Char_CTC_loss.sum())
                     #### check the normalizations ##mean acorss batch and normalize per-frame
-                    Char_CTC_loss = Char_CTC_loss.mean()/CTC_norm_factor
+                    Char_CTC_loss = Char_CTC_loss.sum()/CTC_norm_factor
+                    #print("CTC_cost after the norm factor",Char_CTC_loss)
                     ###======================================================================
                     cost = Char_CTC_loss * self.ctc_weight + cost * (1-self.ctc_weight)
                 ###=====================================================================
@@ -448,12 +453,13 @@ class decoder(nn.Module):
                 ### sort the the hypds bases on score
                 nbest_hyps = sorted(ended_hyps, key=lambda x: x['score'], reverse=True)[:min(len(ended_hyps), beam)]
                 #-----------------------
+                
+
                 ### Convert the hyps to text and add the text seq to dict
                 output_dict=[]
                 for OP in nbest_hyps:
                     OP.pop('state')
                     OP['Text_seq']=self.get_charecters_for_sequences(OP['yseq'])
-
                     output_dict.append(OP)
                 #-------------------------------------
                 #-------------------------------------                
@@ -467,9 +473,9 @@ class decoder(nn.Module):
             replaces sos and eos as unknown symbols and ?? and later deletes them from the output string"""
             output_text_seq=[]
             final_token_seq=input_tensor.data.numpy()
-            final_token_seq=np.where(final_token_seq>self.pad_index,self.Word_SIL_tok,final_token_seq)
+            final_token_seq=np.where(final_token_seq>=self.pad_index,self.Word_SIL_tok,final_token_seq)
             text_sym_sil_tok=self.Word_model.DecodeIds([self.Word_SIL_tok])
-
+            
             for i in final_token_seq:
                 i=i.astype(np.int).tolist()
                 text_as_string=self.Word_model.DecodeIds(i)
@@ -521,7 +527,7 @@ class decoder(nn.Module):
 #======================================================================================================================
 #======================================================================================================================
 # ##debugger
-# sys.path.insert(0,'/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/')
+# sys.path.insert(0,'/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/Basic_Attention_V1')
 # import Attention_arg
 # from Attention_arg import parser
 # args = parser.parse_args()
@@ -535,9 +541,10 @@ class decoder(nn.Module):
 
 # args.Word_model_path='/mnt/matylda3/vydana/benchmarking_datasets/Timit/models/Timit_PHSEQ_100/Timit_PHSEQ__100__word.model'
 # args.Char_model_path='/mnt/matylda3/vydana/benchmarking_datasets/Timit/models/Timit_PHSEQ_100/Timit_PHSEQ__100__word.model'
-# text_file='/mnt/matylda3/vydana/benchmarking_datasets/Timit/All_text'
+# args.text_file='/mnt/matylda3/vydana/benchmarking_datasets/Timit/All_text'
+# text_file = args.text_file
 
-# H = np.load("H.npy",allow_pickle=True)      #torch.randint(low=0, high=1000,size=(10,6))
+# H = torch.rand((81,10,320))      #torch.randint(low=0, high=1000,size=(10,6))
 # H = torch.Tensor(H)
 # H = Variable(H, requires_grad=False)
 
@@ -547,13 +554,13 @@ class decoder(nn.Module):
 # # Word_target=torch.randint(low=0, high=1000,size=(10,6))
 # # Char_target=torch.randint(low=0, high=20,size=(10,25))
 
-# Word_target = np.load("smp_label.npy")      #torch.randint(low=0, high=1000,size=(10,6))
-# Word_target = torch.IntTensor(Word_target)
+# Word_target = torch.randint(low=0, high=62,size=(10,6))
+# Word_target = torch.LongTensor(Word_target)
 # Word_target = Variable(Word_target, requires_grad=False).contiguous().long()
 
 
-# Char_target=np.load("smp_word_label.npy")  #torch.randint(low=0, high=20,size=(10,25))
-# Char_target = torch.IntTensor(Char_target)
+# Char_target = torch.randint(low=0, high=20,size=(10,25))
+# Char_target = torch.LongTensor(Char_target)
 # Char_target = Variable(Char_target, requires_grad=False).contiguous().long()
 
 
@@ -562,7 +569,7 @@ class decoder(nn.Module):
 # text_trans_list_length = [len(text_dict.get(T)) for T in text_dict.keys()]
 # L_text = pad_sequences(text_trans_list,maxlen=max(text_trans_list_length),dtype=object,padding='post',value='unk')
 # #L_text = L_text[:10] 
-# L_text=np.load("smp_trans_text.npy",allow_pickle=True)
+
 
 
 # # import sentencepiece as spm

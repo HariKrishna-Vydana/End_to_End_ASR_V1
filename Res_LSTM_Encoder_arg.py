@@ -41,23 +41,79 @@ class subsampling_LSTMs(nn.Module):
                 return dr_proj_lstm_output_ss2
 ##################################################################
 ##################################################################
+
+#=============================================================================================================
+class Conv_2D_Layers(nn.Module):
+        def __init__(self,args):
+                super(Conv_2D_Layers,self).__init__()
+                self.input_size = int(args.input_size)
+
+                ##get the output as the same size of encoder d_model
+                self.hidden_size = int(args.hidden_size)
+                self.kernel_size = int(args.kernel_size)
+                self.stride = args.stride
+                self.in_channels = int(args.in_channels)
+                self.out_channels = int(args.out_channels)
+                self.conv_dropout  = args.conv_dropout              
+
+                #self.input_layer_norm=torch.nn.LayerNorm(args.input_size)
+                #dropout layer
+                self.conv_dropout_layer = nn.Dropout(self.conv_dropout)
+
+                ###two subsamling conv layers
+                self.conv1= nn.Conv2d(in_channels=self.in_channels,
+                                        out_channels=self.out_channels,
+                                        kernel_size=self.kernel_size,
+                                        stride=self.stride,
+                                        padding=1, dilation=1, groups=1, bias=True)
+
+                #self.conv1_norm = nn.LayerNorm(math.ceil(self.input_size/(self.stride)))
+                
+                self.conv2=torch.nn.Conv2d(in_channels=self.out_channels,
+                                            out_channels=self.out_channels,
+                                            kernel_size=self.kernel_size,
+                                            stride=self.stride,
+                                            padding=1, dilation=1, groups=1, bias=True)                
+
+                linear_in_size=math.ceil(self.out_channels*(math.ceil(self.input_size/(self.stride*2))))
+
+                #self.conv2_norm = nn.LayerNorm(math.ceil(self.input_size/(self.stride*2)))
+
+                ### makes the outputs as  (B * T * d_model)
+                self.linear_out=nn.Linear(linear_in_size, self.hidden_size)
+                #self.linear_out_norm = nn.LayerNorm(self.hidden_size)
+
+        def forward(self, input):
+                conv_input=input.unsqueeze(1)
+                CV1=F.relu(self.conv_dropout_layer(self.conv1(conv_input)))
+                CV2=F.relu(self.conv_dropout_layer(self.conv2(CV1)))
+                conv_output=CV2
+
+                b, c, t, f = conv_output.size()
+                conv_output=conv_output.transpose(1,2).contiguous().view(b,t,c*f)
+                lin_conv_output=self.linear_out(conv_output)
+                return lin_conv_output.transpose(0,1)
+#---------------------------------------------------------------------------------------------------------------
+#===============================================================================================================
 ###########################################################3    
 class Res_LSTM_layers(nn.Module):
         def __init__(self, args):
                 super(Res_LSTM_layers, self).__init__()
-
                 self.hidden_size = args.hidden_size
-
                 self.dropout = args.lstm_dropout
                 self.isresidual = args.isresidual
                 #------------------------------
                 self.LSTM_layer = nn.LSTM(self.hidden_size,self.hidden_size,1,batch_first=False,bidirectional=True,dropout=self.dropout)
+                #self.LSTM_Norm  = nn.LayerNorm(self.hidden_size*2)
                 self.PROJ_Layer = nn.Linear(self.hidden_size*2, self.hidden_size)
+                #self.PROJ_Layer_norm = nn.LayerNorm(self.hidden_size)
+
                 self.Dropout_layer = nn.Dropout(p=self.dropout)
                 #------------------------------
         def forward(self,lstm_ipt):
                 #import pdb;pdb.set_trace()
                 lstm_output, hidden1 = self.LSTM_layer(lstm_ipt)
+                # lstm_output_norm = self.LSTM_Norm(lstm_output)
                 dr_proj_lstm_output = self.Dropout_layer(self.PROJ_Layer(lstm_output))
                 
                 ##residual connections
@@ -83,8 +139,18 @@ class Conv_Res_LSTM_Encoder(nn.Module):
                 self.out_channels = args.out_channels
                 self.conv_dropout = args.conv_dropout
                 self.isresidual = args.isresidual
+                self.enc_front_end = args.enc_front_end
 
-                self.Input_subsamp_layers = subsampling_LSTMs(args)
+                #---------------------------------------------------------
+                if self.enc_front_end=='conv2d':
+                        self.Input_subsamp_layers = Conv_2D_Layers(args)
+
+                elif self.enc_front_end=='Subsamp_lstm':
+                        self.Input_subsamp_layers = subsampling_LSTMs(args)
+                else:
+                    print("Choose a front end")
+                    exit(0)
+                #---------------------------------------------------------
                 self.layer_stack = nn.ModuleList([Res_LSTM_layers(args) for _ in range(self.encoder_layers)])
 
 
@@ -100,11 +166,8 @@ class Conv_Res_LSTM_Encoder(nn.Module):
 #=============================================================================================
 #=============================================================================================
 # if __name__ == '__main__':
-
-
-
-
 #     main()
+
 # sys.path.insert(0,'/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/')
 # import Attention_arg
 # from Attention_arg import parser
