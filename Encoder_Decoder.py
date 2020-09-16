@@ -11,8 +11,9 @@ import torch
 from torch import autograd, nn, optim
 from torch.autograd import Variable
 
+sys.path.insert(0,'/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/Basic_Attention_V1')
 from CMVN import CMVN
-from utils__ import weights_init,count_parameters
+from utils__ import weights_init,count_parameters,weights_init_tanh
 
 class Encoder_Decoder(nn.Module):
         def __init__(self,args):
@@ -24,14 +25,18 @@ class Encoder_Decoder(nn.Module):
                         from Res_LSTM_Encoder_arg import Conv_Res_LSTM_Encoder as encoder
                         from Decoder_V1 import decoder
 
+
                         self.model_encoder=encoder(args=args)
                         self.model_decoder=decoder(args=args)
 
                         ##initialize xavier uniform ####default initialize does not work "imay be liked to use some bormalization layers needed"
-                        self.model_encoder.apply(weights_init)
-                        self.model_decoder.apply(weights_init)
+                        if (str(args.init_full_model)=='xavier_lin_relu'):
+                            self.model_encoder.apply(weights_init)
+                            self.model_decoder.apply(weights_init)
+                        else:
+                            pass;
 
-                        print("encoder:=====>",(count_parameters( self.model_encoder))/1000000.0)
+                        print("encoder:=====>",(count_parameters(self.model_encoder))/1000000.0)
                         print("decoder:=====>",(count_parameters(self.model_decoder))/1000000.0)
 
                 #==================================

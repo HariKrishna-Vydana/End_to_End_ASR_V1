@@ -31,10 +31,10 @@ class DataLoader(object):
         if self.files==[]:
                 print('input to data generator in empty')
                 exit(0)
-        self.data_gen = self.text_file_reader()
 
-        self.text_file_dict ={} #{line.split(' ')[0]:line.strip().split(' ')[1:] for line in open(text_file)}
-        
+
+        self.text_file_dict ={} 
+
         self.Word_model = Word_model
         self.Char_model = Char_model
         self.max_batch_len = max_batch_len
@@ -46,10 +46,12 @@ class DataLoader(object):
         self.Word_padding_id = self.Word_model.__len__()
         self.Char_padding_id = self.Char_model.__len__()
         self.word_space_token   = self.Word_model.EncodeAsIds('_____')[0]
-
+        
+    
         self._thread = Thread(target=self.__load_data)
         self._thread.daemon = True
         self._thread.start()
+
     
     def __reset_the_data_holders(self):
         self.batch_data=[]
@@ -67,121 +69,125 @@ class DataLoader(object):
         self.batch_word_text_tgt=[]
         self.batch_word_text_length_tgt=[]
     
+    #---------------------------------------------------------------------
+    def make_batching_dict(self):
+        #----------------------------------------
+        smp_feat=pad_sequences(self.batch_data,maxlen=max(self.batch_length),dtype='float32',padding='post',value=0.0)
+        smp_char_labels=pad_sequences(self.batch_labels,maxlen=max(self.batch_label_length),dtype='int32',padding='post',value=self.Char_padding_id) 
+        smp_word_label=pad_sequences(self.batch_word_labels,maxlen=max(self.batch_word_label_length),dtype='int32',padding='post',value=self.Word_padding_id)
+        smp_trans_text=pad_sequences(self.batch_word_text, maxlen=max(self.batch_word_text_length),dtype=object,padding='post',value='')
+        smp_trans_text_tgt=pad_sequences(self.batch_word_text_tgt, maxlen=max(self.batch_word_text_length_tgt),dtype=object,padding='post',value='')
+
+        batch_data_dict={
+            'smp_names':self.batch_names,
+            'smp_feat':smp_feat,
+            'smp_char_label':smp_char_labels,
+            'smp_word_label':smp_word_label,
+            'smp_trans_text':smp_trans_text,
+            'smp_trans_text_tgt': smp_trans_text_tgt,
+            'smp_feat_length':self.batch_length,
+            'smp_label_length':self.batch_label_length,
+            'smp_word_label_length':self.batch_word_label_length,
+            'smp_word_text_length':self.batch_word_text_length,
+            'smp_word_text_length_tgt':self.batch_word_text_length_tgt}
+        return batch_data_dict
     #------------------------------------------
-    def text_file_reader(self):
-        ###directly reading file is dangerous due to multi sthreading and stale file erors
-        while True:
-            for inp_file in self.files:
-                with open(inp_file) as f:
-                    for line in f:
-                        yield line
     #------------------------------------------
     def __load_data(self):
         ###initilize the lists
-        self.__reset_the_data_holders()
-        max_batch_label_len = self.max_batch_label_len
         while True:
-                    line = next(self.data_gen)
-                    #print(line)
-                    #============================
-                    split_lines=line.split(' @@@@ ')
-                    #============================
-                    ##assigining
-                    key = split_lines[0]
-                    scp_path = split_lines[1]
-                    #============================
-                    ### Char labels
-                    #============================
-                    src_text = split_lines[3] 
-                    src_tok = split_lines[4] 
-                    src_tok = [int(i) for i in src_tok.split(' ')]  
-                    #============================
-                    ##Word models
-                    #============================
-                    tgt_text = split_lines[5]
-                    tgt_tok = split_lines[6]
-                    tgt_tok = [int(i) for i in tgt_tok.split(' ')]  
-                    #============================
-                    ### text 
-                    #============================
-                    char_tokens = src_tok
-                    word_tokens = tgt_tok
+            self.__reset_the_data_holders()
+            max_batch_label_len = self.max_batch_label_len
+            for inp_file in self.files:
+                with open(inp_file) as f:
+                    for line in f:
+                        #============================
+                        split_lines=line.split(' @@@@ ')
+                        #============================
+                        ##assigining
+                        key = split_lines[0]
+                        scp_path = split_lines[1]
+                        #============================
+                        ### Char labels
+                        #============================
+                        src_text = split_lines[3] 
+                        src_tok = split_lines[4] 
+                        src_tok = [int(i) for i in src_tok.split(' ')]  
+                        #============================
+                        ##Word models
+                        #============================
+                        tgt_text = split_lines[5]
+                        tgt_tok = split_lines[6]
+                        tgt_tok = [int(i) for i in tgt_tok.split(' ')]  
+                        #============================
+                        ### text 
+                        #============================
+                        char_tokens = src_tok
+                        word_tokens = tgt_tok
 
-                    char_labels = src_text.split(' ')
-                    word_labels = tgt_text.split(' ')
-                    #--------------------------
-                    mat = kaldi_io.read_mat(scp_path)
-                    mat = CMVN(mat)
-                    if (mat.shape[1]==40) or (mat.shape[0]>self.max_feat_len) or (mat.shape[0]<len(char_labels) or (len(char_tokens) > self.max_label_len)):
-                                                 continue;
+                        char_labels = src_text.split(' ')
+                        word_labels = tgt_text.split(' ')
+                        #--------------------------
+                        mat = kaldi_io.read_mat(scp_path)
+                        mat = CMVN(mat)
 
-                    # total_labels_in_batch is used to keep track of the length of sequences in a batch, just make sure it does not overflow the gpu
-                    ##in general lstm training we are not using this because self.max_batch_len will be around 10-20 and self.max_batch_label_len is usuvally set very high                         
-                    expect_len_of_features=max(max(self.batch_length,default=0),mat.shape[0])
-                    expect_len_of_labels=max(max(self.batch_label_length,default=0),len(char_tokens))
+                        if (mat.shape[0]>self.max_feat_len) or (mat.shape[0]<len(char_labels)) or (len(char_tokens) > self.max_label_len):
+                                print("key,mat.shape,char_labels,char_tokens,self.max_label_len",key,mat.shape,len(char_labels),len(char_tokens),self.max_label_len)
+                                continue;
 
-                    total_labels_in_batch= (expect_len_of_features + expect_len_of_labels)*(len(self.batch_names)+4)
+                        #==============================================================
+                        ###Add to the list
+                        ####
+                        self.batch_data.append(mat)                
+                        self.batch_names.append(key)
+                        self.batch_length.append(mat.shape[0])
 
-                    ###check if ypu have enough labels output and if you have then push to the queue
-                    ###else keep adding them to the lists
-                    if total_labels_in_batch > self.max_batch_label_len or len(self.batch_data)==self.max_batch_len:
+                        self.batch_labels.append(char_tokens)
+                        self.batch_label_length.append(len(char_tokens))
+                        
+                        self.batch_word_labels.append(word_tokens)
+                        self.batch_word_label_length.append(len(word_tokens))
 
-                                # #==============================================================
-                                # ####to clumsy -------> for secound level of randomization 
-                                # CCCC=list(zip(batch_data,batch_names,batch_labels,batch_word_labels,batch_word_text,batch_label_length,batch_length,batch_word_label_length,batch_word_text_length))
-                                # random.shuffle(CCCC)
-                                # batch_data,batch_names,batch_labels,batch_word_labels,batch_word_text,batch_label_length,batch_length,batch_word_label_length,batch_word_text_length=zip(*CCCC)
-                                # #==============================================================
-                                
-                                smp_feat=pad_sequences(self.batch_data,maxlen=max(self.batch_length),dtype='float32',padding='post',value=0.0)
+                        self.batch_word_text.append(char_labels)
+                        self.batch_word_text_length.append(len(char_labels))
 
-                                smp_char_labels=pad_sequences(self.batch_labels,maxlen=max(self.batch_label_length),dtype='int32',padding='post',value=self.Char_padding_id) 
-                                smp_word_label=pad_sequences(self.batch_word_labels,maxlen=max(self.batch_word_label_length),dtype='int32',padding='post',value=self.Word_padding_id)
+                        self.batch_word_text_tgt.append(word_labels)
+                        self.batch_word_text_length_tgt.append(len(word_labels))   
+                        #==============================================================
 
+                        #==============================================================
+                        # total_labels_in_batch is used to keep track of the length of sequences in a batch, just make sure it does not overflow the gpu
+                        ##in general lstm training we are not using this because self.max_batch_len will be around 10-20 and self.max_batch_label_len is usuvally set very high                         
+                        expect_len_of_features=max(max(self.batch_length,default=0),mat.shape[0])
+                        expect_len_of_labels=max(max(self.batch_label_length,default=0),len(char_tokens))
 
-                                smp_trans_text=pad_sequences(self.batch_word_text, maxlen=max(self.batch_word_text_length),dtype=object,padding='post',value='')
-                                smp_trans_text_tgt=pad_sequences(self.batch_word_text_tgt, maxlen=max(self.batch_word_text_length_tgt),dtype=object,padding='post',value='')
+                        total_labels_in_batch= (expect_len_of_features + expect_len_of_labels)*(len(self.batch_names)+4)
 
-                                batch_data_dict={
-                                    'smp_names':self.batch_names,
-                                    'smp_feat':smp_feat,
-                                    'smp_char_label':smp_char_labels,
-                                    'smp_word_label':smp_word_label,
-                                    'smp_trans_text':smp_trans_text,
-                                    'smp_trans_text_tgt': smp_trans_text_tgt,
-                                    'smp_feat_length':self.batch_length,
-                                    'smp_label_length':self.batch_label_length,
-                                    'smp_word_label_length':self.batch_word_label_length,
-                                    'smp_word_text_length':self.batch_word_text_length,
-                                    'smp_word_text_length_tgt':self.batch_word_text_length_tgt}
+                        ###check if ypu have enough labels output and if you have then push to the queue
+                        ###else keep adding them to the lists
+                        if total_labels_in_batch > self.max_batch_label_len or len(self.batch_data)==self.max_batch_len:
+                                    # #==============================================================
+                                    # ####to clumsy -------> for secound level of randomization 
+                                    # CCCC=list(zip(batch_data,batch_names,batch_labels,batch_word_labels,batch_word_text,batch_label_length,batch_length,batch_word_label_length,batch_word_text_length))
+                                    # random.shuffle(CCCC)
+                                    # batch_data,batch_names,batch_labels,batch_word_labels,batch_word_text,batch_label_length,batch_length,batch_word_label_length,batch_word_text_length=zip(*CCCC)
+                                    # #==============================================================
 
-                                self.queue.put(batch_data_dict)
-                                #=================================
-                                ###after pushing data to lists reset them
-                                self.__reset_the_data_holders()
-                    else:
-                                #==============================================================
-                                self.batch_data.append(mat)                
-                                self.batch_names.append(key)
-                                self.batch_length.append(mat.shape[0])
+                                    batch_data_dict = self.make_batching_dict()
+                                    self.queue.put(batch_data_dict)
+                                    ###after pushing data to lists reset them
+                                    self.__reset_the_data_holders()
+            
 
-                                self.batch_labels.append(char_tokens)
-                                self.batch_label_length.append(len(char_tokens))
-                                
-                                self.batch_word_labels.append(word_tokens)
-                                self.batch_word_label_length.append(len(word_tokens))
-
-                                self.batch_word_text.append(char_labels)
-                                self.batch_word_text_length.append(len(char_labels))
-
-                                self.batch_word_text_tgt.append(word_labels)
-                                self.batch_word_text_length_tgt.append(len(word_labels))
+            if len(self.batch_names)>0:
+                ### Collect the left over stuff  as the last batch
+                #-----------------------------------------------
+                batch_data_dict = self.make_batching_dict()
+                self.queue.put(batch_data_dict)
 
     def next(self, timeout=30000):
         return self.queue.get(block=True, timeout=timeout)
 #===================================================================
-
-
 
 
 # sys.path.insert(0,'/mnt/matylda3/vydana/HOW2_EXP/KAT_Attention')
@@ -189,7 +195,6 @@ class DataLoader(object):
 # from Attention_arg import parser
 # args = parser.parse_args()
 # print(args)
-
 
 
 # ###debugger

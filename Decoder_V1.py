@@ -6,17 +6,21 @@ from torch.autograd import Variable
 import torch.nn.utils.weight_norm as wtnrm
 
 import numpy as np
+# import keras
 from keras.preprocessing.sequence import pad_sequences
 
+import sys
+sys.path.insert(0, '/mnt/matylda3/vydana/HOW2_EXP/Gen_V1/ATTNCODE/Basic_Attention_V1')
 
 from Load_sp_model import Load_sp_models
+
 from CE_loss_label_smoothiong import cal_performance
 from CE_loss_label_smoothiong import CrossEntropyLabelSmooth as cal_loss
 from user_defined_losses import preprocess,compute_cer
 
-import sys
 import os
 from os.path import join, isdir
+from utils__ import xavier_uniform
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #==========================================================
 #==========================================================
@@ -69,7 +73,7 @@ class decoder(nn.Module):
                 #---------------------------------------
                 #Word_model layers
                 #---------------------------------------
-
+                
                 #ATTENT parameters
                 kernel_size = 11 #kernal is always odd
                 padding     = (kernel_size - 1) // 2
@@ -109,8 +113,18 @@ class decoder(nn.Module):
                     else:
                         print("ctc_target_type given wrong",self.ctc_target_type)
                         exit(0)
+
+                    xavier_uniform(self.CTC_output_layer,'linear')
         #---------------------------------------
-        #-------------------------------
+        #==============================================
+                #####
+                # xavier_uniform(self.conv, 'tanh')
+                # xavier_uniform(self.PSI, 'tanh')
+                # xavier_uniform(self.PHI, 'tanh')
+                # xavier_uniform(self.attn,'linear')
+                # xavier_uniform(self.W_Dist,'linear')
+        #==============================================
+        #----------------------------------------------
         def select_step(self, H, yi, hn1, cn1, si, alpha_i_prev, ci):
                     if self.attention_type=='LAS':
                         yout, alpha_i, si_out, hn1_out, cn1_out, ci_out = self.step_LAS(H, yi, hn1, cn1, si, alpha_i_prev, ci)
@@ -125,7 +139,7 @@ class decoder(nn.Module):
                     elif self.attention_type=='LAS_LOC_ci':
                         yout, alpha_i, si_out, hn1_out, cn1_out, ci_out = self.LAS_LOC_ci(H, yi, hn1, cn1, si, alpha_i_prev, ci)
                     #------------------------------
-                    #-------------------------------
+                    #------------------------------
                     else:
                         print("-atention type undefined choose LAS |Collin_monotonc| Location_aware--->",self.attention_type)
                         exit(0)
@@ -219,8 +233,8 @@ class decoder(nn.Module):
         #=======================================================================================
         def forward(self,H,teacher_force_rate,Char_target,Word_target,L_text):
                 #----------
-                #if not self.use_word:
-                #     Char_target, Word_target = Word_target, Char_target
+                # if not self.use_word:
+                #      Char_target, Word_target = Word_target, Char_target
                 ###add sos and eos and padding
                 _,Char_target = preprocess(Char_target,self.Char_pad_id,self.Char_sos_id,self.Char_eos_id)
                 _,Word_target = preprocess(Word_target,self.pad_index,self.sos_id,self.eos_id)
@@ -250,7 +264,6 @@ class decoder(nn.Module):
                         cost += present_word_cost
 
                         #-----------------------------------------
-
                         teacher_force = True if np.random.random_sample() < teacher_force_rate else False
                         if teacher_force:
                                 pred_label=Word_target[:,d_steps]
@@ -267,8 +280,12 @@ class decoder(nn.Module):
                 ###=====================================================================
                 ###Normalize the loss per_label and not per batch
 
+
+                ####checking if no normlizatin works better
                 #print("Att_cost before normalized",cost)
-                cost = cost/(decoder_steps*batch_size)
+                #cost = cost/(decoder_steps*batch_size)
+
+
                 #print("Att_cost after normalized",cost)
                 ###=====================================================================
                 #Computing WER
@@ -306,6 +323,7 @@ class decoder(nn.Module):
                     Char_CTC_loss = Char_CTC_loss.sum()/CTC_norm_factor
                     #print("CTC_cost after the norm factor",Char_CTC_loss)
                     ###======================================================================
+                    print('Using CTC')
                     cost = Char_CTC_loss * self.ctc_weight + cost * (1-self.ctc_weight)
                 ###=====================================================================
                 ###=====================================================================
